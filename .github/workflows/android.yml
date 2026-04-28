@@ -25,8 +25,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          # No cache: "npm" here — that requires a committed package-lock.json.
-          # Node modules are cached manually in the next step instead.
+          # No cache: "npm" — requires a committed package-lock.json.
+          # node_modules are cached manually below instead.
 
       # ── 3. Cache node_modules ────────────────────────────────
       - name: Cache node_modules
@@ -51,8 +51,8 @@ jobs:
 
       # ── 6. Install dependencies ─────────────────────────────
       - name: Install Node dependencies
-        # npm install instead of npm ci — no lockfile required.
-        # Skipped when the node_modules cache is a full hit.
+        # Skipped on full node_modules cache hit.
+        # Uses npm install (not npm ci) — no lockfile required.
         if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: npm install
 
@@ -61,10 +61,18 @@ jobs:
         run: npm run build
 
       # ── 8. Capacitor sync → copies dist into android/ ───────
+      # @capacitor/cli is now in devDependencies so `cap` is available
+      # via the local node_modules/.bin path that npx resolves.
       - name: Capacitor sync
         run: npx cap sync android
 
-      # ── 9. Cache Gradle dependencies ────────────────────────
+      # ── 9. Generate Android icons & splash screens ───────────
+      # Reads resources/icon.png (1024x1024) and resources/splash.png
+      # and writes all required mipmap / drawable sizes into android/.
+      - name: Generate icons and splash screens
+        run: npx capacitor-assets generate --android
+
+      # ── 10. Cache Gradle dependencies ───────────────────────
       - name: Cache Gradle packages
         uses: actions/cache@v4
         with:
@@ -75,7 +83,7 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
-      # ── 10a. Decode keystore (only on push/tag, not PRs) ────
+      # ── 11a. Decode keystore (only on push/tag, not PRs) ─────
       - name: Decode keystore
         if: github.event_name != 'pull_request' && env.KEYSTORE_BASE64 != ''
         env:
@@ -83,7 +91,7 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
 
-      # ── 10b. Build signed release APK ───────────────────────
+      # ── 11b. Build signed release APK ───────────────────────
       - name: Build release APK (signed)
         if: github.event_name != 'pull_request' && env.KEYSTORE_BASE64 != ''
         env:
@@ -99,7 +107,7 @@ jobs:
             -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
             -Pandroid.injected.signing.key.password=$KEY_PASSWORD
 
-      # ── 10c. Build debug APK (PRs or no keystore secrets) ───
+      # ── 11c. Build debug APK (PRs or no keystore secrets) ───
       - name: Build debug APK
         if: github.event_name == 'pull_request' || env.KEYSTORE_BASE64 == ''
         env:
@@ -107,24 +115,35 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug
 
-      # ── 11. Upload APK artifact ─────────────────────────────
+      # ── 12. Rename APK to breaking-news.apk ─────────────────
+      - name: Rename APK
+        run: |
+          for variant in release debug; do
+            APK=$(find android/app/build/outputs/apk/$variant -name "*.apk" 2>/dev/null | head -1)
+            if [ -n "$APK" ]; then
+              mv "$APK" "$(dirname $APK)/breaking-news.apk"
+              echo "Renamed $variant APK to breaking-news.apk"
+            fi
+          done
+
+      # ── 13. Upload APK artifact ─────────────────────────────
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: breaking-news-tv-apk
+          name: breaking-news-apk
           path: |
-            android/app/build/outputs/apk/release/*.apk
-            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/breaking-news.apk
+            android/app/build/outputs/apk/debug/breaking-news.apk
           if-no-files-found: warn
           retention-days: 30
 
-      # ── 12. Create GitHub Release on version tags ────────────
+      # ── 14. Create GitHub Release on version tags ────────────
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/release/breaking-news.apk
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
