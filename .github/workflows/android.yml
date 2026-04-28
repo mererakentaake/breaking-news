@@ -54,9 +54,16 @@ jobs:
       - name: Build web assets
         run: npm run build
 
-      # ── 8. Capacitor sync → copies dist into android/ ───────
-      # @capacitor/cli is now in devDependencies so `cap` is available
-      # via the local node_modules/.bin path that npx resolves.
+      # ── 8. Add Android platform (first run only) ────────────
+      # `cap sync` requires the android/ folder to exist first.
+      # `cap add android` creates it — skipped if already present.
+      - name: Add Android platform
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+
+      # ── 9. Capacitor sync → copies dist into android/ ───────
       - name: Capacitor sync
         run: npx cap sync android
 
