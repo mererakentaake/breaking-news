@@ -2,7 +2,7 @@ import { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
   appId: "nz.leadstory.breakingnews",
-  appName: "Breaking News TV",
+  appName: "Breaking News",
   webDir: "dist",
   server: {
     androidScheme: "https",
